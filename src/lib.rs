@@ -5,6 +5,9 @@
 #![allow(dead_code)]
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
+#![feature(trace_macros)]
+#![feature(concat_idents)]
+
 
 
 mod ffi;
@@ -17,6 +20,9 @@ use std::ffi::CString;
 use std::ffi::CStr;
 
 use std::rc::Rc;
+
+extern crate time;
+use time::Timespec;
 
 struct ReaderHandler {
     h: *mut Struct_archive
@@ -82,11 +88,11 @@ impl Reader {
         }
     }
 
-    pub fn next_header<'s>(&'s self) -> Result<ArchiveEntry, &'static str> {
+    pub fn next_header<'s>(&'s self) -> Result<ArchiveEntryReader, &'static str> {
         unsafe {
             let mut entry: *mut Struct_archive_entry = ptr::null_mut();
             if archive_read_next_header(self.handler.h, &mut entry)==ARCHIVE_OK {
-                Ok( ArchiveEntry { entry: entry, handler: self.handler.clone() } )
+                Ok( ArchiveEntryReader { entry: entry, handler: self.handler.clone() } )
             } else {
                 Err("Ok something ends")
             }
@@ -94,30 +100,48 @@ impl Reader {
     }
 }
 
-pub struct ArchiveEntry {
+pub struct ArchiveEntryReader {
     entry: *mut Struct_archive_entry,
     handler: Rc<ReaderHandler>
 }
 
-impl ArchiveEntry {
+macro_rules! get_time {
+    ( $fname:ident, $apiname:ident) => {
+        pub fn $fname(&self) -> Timespec {
+            unsafe {
+                let sec = (concat_idents!(archive_entry_, $apiname))(self.entry);
+                let nsec = (concat_idents!(archive_entry_, $apiname, _nsec))(self.entry);
+                Timespec::new(sec, nsec as i32)
+            }
+        }
+    };
+}
+
+unsafe fn wrap_to_string(ptr: *const c_char) -> String {
+    let path = CStr::from_ptr(ptr);
+    String::from(std::str::from_utf8(path.to_bytes()).unwrap())
+}
+
+impl ArchiveEntryReader {
     pub fn pathname(&self) -> String {
         unsafe {
-            let path = CStr::from_ptr(archive_entry_pathname(self.entry));
-            let S = std::str::from_utf8(path.to_bytes()).unwrap();
-            String::from(S)
+            wrap_to_string(archive_entry_pathname(self.entry))
         }
     }
 
     pub fn sourcepath(&self) -> String {
         unsafe {
-            let path = CStr::from_ptr(archive_entry_sourcepath(self.entry));
-            let S = std::str::from_utf8(path.to_bytes()).unwrap();
-            String::from(S)
+            wrap_to_string(archive_entry_sourcepath(self.entry))
         }
     }
 
     pub fn archive(&self) -> Reader {
         Reader { handler: self.handler.clone() }
     }
+
+    get_time!(access_time, atime);
+    get_time!(creation_time, birthtime);
+    get_time!(inode_change_time, ctime);
+    get_time!(modification_time, mtime);
 }
 
