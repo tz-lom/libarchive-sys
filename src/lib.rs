@@ -11,53 +11,34 @@
 
 
 mod ffi;
-
 use ffi::archive::*;
 
 use std::ptr;
-
 use std::ffi::CString;
 use std::ffi::CStr;
-
 use std::rc::Rc;
+use std::rc;
 
 extern crate time;
 use time::Timespec;
 
-struct ReaderHandler {
-    h: *mut Struct_archive
-}
 
-impl Drop for ReaderHandler {
-    fn drop(&mut self) {
-        unsafe {
-            println!("Dropped\n");
-            archive_read_free(self.h);
-        }
-    }
-}
-
+#[derive(PartialEq, Clone)]
 pub struct Reader {
-    handler: Rc<ReaderHandler>
+    handler: Rc<*mut Struct_archive>
 }
 
-impl PartialEq for Reader {
-    fn eq(&self, other: &Reader) -> bool {
-        self.handler.h == other.handler.h
-    }
-}
-
-impl Eq for Reader {}
+pub struct AllocationError;
 
 impl Reader {
-    pub fn new() -> Result<Reader, &'static str> {
+    pub fn new() -> Result<Reader, AllocationError> {
         unsafe {
             let h = archive_read_new();
 
             if h.is_null() {
-                Err("Failed to allocate archive struct")
+                Err(AllocationError)
             } else {
-                Ok(Reader { handler: Rc::new(ReaderHandler { h:h }) })
+                Ok(Reader { handler: Rc::new(h) })
 
             }
         }
@@ -65,14 +46,14 @@ impl Reader {
 
     pub fn support_filter_all(self) -> Self {
         unsafe {
-            archive_read_support_filter_all(self.handler.h);
+            archive_read_support_filter_all(*self.handler);
         }
         self
     }
 
     pub fn support_format_all(self) -> Self {
         unsafe {
-            archive_read_support_format_all(self.handler.h);
+            archive_read_support_format_all(*self.handler);
         }
         self
     }
@@ -80,7 +61,7 @@ impl Reader {
     pub fn open_filename(self, fileName: &str, bufferSize: u64 ) -> Result<Self, &'static str> {
         let fname = CString::new(fileName).unwrap();
         unsafe {
-            if archive_read_open_filename(self.handler.h, fname.as_ptr(), bufferSize)==ARCHIVE_OK {
+            if archive_read_open_filename(*self.handler, fname.as_ptr(), bufferSize)==ARCHIVE_OK {
                 Ok(self)
             } else {
                 Err("Can't open file")
@@ -91,7 +72,7 @@ impl Reader {
     pub fn next_header<'s>(&'s self) -> Result<ArchiveEntryReader, &'static str> {
         unsafe {
             let mut entry: *mut Struct_archive_entry = ptr::null_mut();
-            if archive_read_next_header(self.handler.h, &mut entry)==ARCHIVE_OK {
+            if archive_read_next_header(*self.handler, &mut entry)==ARCHIVE_OK {
                 Ok( ArchiveEntryReader { entry: entry, handler: self.handler.clone() } )
             } else {
                 Err("Ok something ends")
@@ -100,9 +81,69 @@ impl Reader {
     }
 }
 
+impl Drop for Reader {
+	fn drop(&mut self) {
+		if rc::is_unique(&self.handler) {
+			unsafe { archive_read_free(*self.handler); }
+		}
+	}
+}
+
+#[derive(PartialEq, Clone)]
+pub struct Writer {
+	handler: Rc<*mut Struct_archive>
+}
+
+impl Drop for Writer {
+	fn drop(&mut self) {
+		if rc::is_unique(&self.handler) {
+			unsafe { archive_write_free(*self.handler); }
+		}
+	}
+}
+
+impl Writer {
+	pub fn new() -> Result<Writer, AllocationError> {
+		unsafe {
+			let h = archive_write_new();
+			if h.is_null() {
+				Err(AllocationError)
+			} else {
+				Ok(Writer { handler: Rc::new(h) })
+			}
+		}
+	}
+}
+
+#[derive(PartialEq, Clone)]
+pub struct WriterToDisk {
+	handler: Rc<*mut Struct_archive>
+}
+
+impl WriterToDisk {
+	pub fn new() -> Result<WriterToDisk, AllocationError> {
+		unsafe {
+			let h = archive_write_disk_new();
+			if h.is_null() {
+					Err(AllocationError)
+			} else {
+					Ok(Writer { handler: Rc::new(h) })
+			}
+		}
+	}
+}
+
+impl Drop for WriterToDisk {
+	fn drop(&mut self) {
+		if rc::is_unique(&self.handler) {
+			unsafe { archive_write_free(*self.handler); }
+		}
+	}
+}
+
 pub struct ArchiveEntryReader {
     entry: *mut Struct_archive_entry,
-    handler: Rc<ReaderHandler>
+    handler: Rc<*mut Struct_archive>
 }
 
 macro_rules! get_time {
