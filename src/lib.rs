@@ -20,6 +20,7 @@ use std::ffi::CString;
 use std::ffi::CStr;
 
 use std::rc::Rc;
+use std::io::Read;
 
 extern crate time;
 use time::Timespec;
@@ -84,6 +85,27 @@ impl Reader {
                 Ok(self)
             } else {
                 Err("Can't open file")
+            }
+        }
+    }
+
+    pub fn open_memory(self, memory: &mut [u8]) -> Result<Self, &'static str> {
+        unsafe {
+            if archive_read_open_memory(self.handler.h, *memory as *mut c_void, memory.len() as u64)==ARCHIVE_OK {
+                Ok(self)
+            } else {
+                Err("Noway")
+            }
+        }
+    }
+
+    pub fn open_stream(self, source: &mut Read) -> Result<Self, &'static str> {
+        unsafe {
+
+            if archive_read_open2()==ARCHIVE_OK {
+                Ok(self)
+            } else {
+                Err("Failed to create")
             }
         }
     }
