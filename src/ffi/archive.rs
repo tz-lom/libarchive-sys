@@ -17,7 +17,7 @@ pub struct Struct_archive_entry_linkresolver;
 pub type archive_read_callback =
     extern "C" fn(arg1: *mut Struct_archive,
                   _client_data: *mut c_void,
-                  _buffer: *mut *const c_void) -> ssize_t;
+                  _buffer: *mut *mut c_void) -> ssize_t;
 pub type archive_skip_callback =
     extern "C" fn(arg1: *mut Struct_archive,
                   _client_data: *mut c_void, request: int64_t)
@@ -230,31 +230,40 @@ extern "C" {
      pub fn archive_read_open(arg1: *mut Struct_archive,
                              _client_data: *mut c_void,
                              arg2:
-                                 *mut ::std::option::Option<extern "C" fn()
+                                 *mut extern "C" fn(arg1: *mut Struct_archive,
+                                                                            _client_data: *mut c_void)
                                                                 ->
-                                                                    c_int>,
+                                                                    c_int,
                              arg3:
-                                 *mut ::std::option::Option<extern "C" fn()
-                                                                -> ssize_t>,
+                                 extern "C" fn(arg1: *mut Struct_archive,
+                                                                            _client_data: *mut c_void,
+                                                                            _buffer: *mut *mut c_void)
+                                                                -> ssize_t,
                              arg4:
-                                 *mut ::std::option::Option<extern "C" fn()
+                                 extern "C" fn(arg1: *mut Struct_archive,
+                                                                            _client_data: *mut c_void)
                                                                 ->
-                                                                    c_int>)
+                                                                    c_int)
      -> c_int;
      pub fn archive_read_open2(arg1: *mut Struct_archive,
                               _client_data: *mut c_void,
                               arg2:
-                                  *mut ::std::option::Option<extern "C" fn()
+                                  *mut ::std::option::Option<extern "C" fn(arg1: *mut Struct_archive,
+                                                                            _client_data: *mut c_void)
                                                                  ->
                                                                      c_int>,
                               arg3:
-                                  *mut ::std::option::Option<extern "C" fn()
+                                  *mut ::std::option::Option<extern "C" fn(arg1: *mut Struct_archive,
+                                                                            _client_data: *mut c_void)
                                                                  -> ssize_t>,
                               arg4:
-                                  *mut ::std::option::Option<extern "C" fn()
+                                  *mut ::std::option::Option<extern "C" fn(arg1: *mut Struct_archive,
+                                                                            _client_data: *mut c_void,
+                                                                            _buffer: *mut *const c_void)
                                                                  -> int64_t>,
                               arg5:
-                                  *mut ::std::option::Option<extern "C" fn()
+                                  *mut ::std::option::Option<extern "C" fn(arg1: *mut Struct_archive,
+                                                                            _client_data: *mut c_void)
                                                                  ->
                                                                      c_int>)
      -> c_int;

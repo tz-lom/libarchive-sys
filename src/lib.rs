@@ -7,7 +7,7 @@
 #![allow(non_camel_case_types)]
 #![feature(trace_macros)]
 #![feature(concat_idents)]
-
+#![feature(alloc)]
 
 
 mod ffi;
@@ -17,19 +17,112 @@ use std::ptr;
 use std::ffi::CString;
 use std::ffi::CStr;
 use std::rc::Rc;
-use std::io::Read;
+use std::io::{Read, Seek};
 use std::rc;
+use std::error::Error;
+use std::any::Any;
+
 
 extern crate time;
 use time::Timespec;
 
 
+#[allow(raw_pointer_derive)]
 #[derive(PartialEq, Clone)]
 pub struct Reader {
     handler: Rc<*mut Struct_archive>
 }
 
+#[derive(Debug)]
 pub struct AllocationError;
+#[derive(Debug)]
+pub enum ArchiveError {
+    Ok,
+    Warn,
+    Failed,
+    Retry,
+    Eof,
+    Fatal
+}
+/*
+impl fmt::Debug for AllocationError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.debug_struct("AllocationError").finish()
+    }
+}
+
+impl fmt::Debug for AllocationError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+                fmt.debug_struct("AllocationError").finish()
+    }
+}*/
+
+
+fn code_to_error(code: c_int) -> ArchiveError {
+    match code {
+        ARCHIVE_OK => { return ArchiveError::Ok; }
+        ARCHIVE_WARN => { return ArchiveError::Warn; }
+        ARCHIVE_FAILED => { return ArchiveError::Failed; }
+        ARCHIVE_RETRY => { return ArchiveError::Retry; }
+        ARCHIVE_EOF => { return ArchiveError::Eof; }
+        ARCHIVE_FATAL => { return ArchiveError::Fatal; }
+        _ => { panic!(); }
+    }
+}
+
+struct ReadContainer {
+    reader: Box<Read>,
+    buffer: Vec<u8>,
+    seeker: Option<Box<Seek>>
+}
+
+impl ReadContainer {
+    fn read_bytes(&mut self) -> std::io::Result<usize> {
+        self.reader.read(&mut self.buffer[..])
+    }
+}
+
+extern "C" fn arch_read(arch: *mut Struct_archive, _client_data: *mut c_void, _buffer: *mut *mut c_void) -> ssize_t {
+    unsafe {
+        // use client_data as pointer to ReadContainer struct
+        let mut rc = Box::from_raw(_client_data as *mut ReadContainer);
+        *_buffer = rc.buffer.as_mut_ptr() as *mut c_void;
+        let size = rc.read_bytes();
+        std::boxed::into_raw(rc);
+
+        if size.is_err() {
+            let err = size.unwrap_err();
+            let descr = CString::new(err.description()).unwrap();
+            archive_set_error(arch, err.raw_os_error().unwrap_or(0), descr.as_ptr());
+            return -1;
+        }
+        return size.unwrap() as ssize_t;
+    }
+}
+
+#[allow(unused_variables)]
+extern "C" fn arch_close(arch: *mut Struct_archive, _client_data: *mut c_void) -> c_int {
+    unsafe {
+        let rc = Box::from_raw(_client_data as *mut ReadContainer);
+        return ARCHIVE_OK;
+    }
+}
+
+extern "C" fn arch_skip(_: *mut Struct_archive, _client_data: *mut c_void, request: int64_t) -> int64_t {
+    unsafe {
+        let mut rc = Box::from_raw(_client_data as *mut ReadContainer);
+
+        // we can't return error code here, but if we return 0 normal read will be called, where error code will be set
+        if rc.seeker.is_none() {
+            std::boxed::into_raw(rc);
+            return 0;
+        }
+        let size = rc.seeker.as_mut().unwrap().seek(std::io::SeekFrom::Current(request)).unwrap_or(0);
+
+        std::boxed::into_raw(rc);
+        return size as int64_t;
+    }
+}
 
 impl Reader {
     pub fn new() -> Result<Reader, AllocationError> {
@@ -59,45 +152,60 @@ impl Reader {
         self
     }
 
-    pub fn open_filename(self, fileName: &str, bufferSize: u64 ) -> Result<Self, &'static str> {
+    pub fn open_filename(self, fileName: &str, bufferSize: u64 ) -> Result<Self, ArchiveError> {
         let fname = CString::new(fileName).unwrap();
         unsafe {
-            if archive_read_open_filename(*self.handler, fname.as_ptr(), bufferSize)==ARCHIVE_OK {
+            let res = archive_read_open_filename(*self.handler, fname.as_ptr(), bufferSize);
+            if res==ARCHIVE_OK {
                 Ok(self)
             } else {
-                Err("Can't open file")
+                Err(code_to_error(res))
             }
         }
     }
 
-    pub fn open_memory(self, memory: &mut [u8]) -> Result<Self, &'static str> {
+    pub fn open_memory(self, memory: &mut [u8]) -> Result<Self, ArchiveError> {
         unsafe {
-            if archive_read_open_memory(self.handler.h, *memory as *mut c_void, memory.len() as u64)==ARCHIVE_OK {
+            let memptr: *mut u8 = &mut memory[0];
+            let res = archive_read_open_memory(*self.handler, memptr as *mut c_void, memory.len() as u64);
+            if res==ARCHIVE_OK {
                 Ok(self)
             } else {
-                Err("Noway")
+                Err(code_to_error(res))
             }
         }
     }
 
-    pub fn open_stream(self, source: &mut Read) -> Result<Self, &'static str> {
+    pub fn open_stream<T: Any+Read>(self, source: T) -> Result<Self, ArchiveError> {
         unsafe {
+            let mut rc_unboxed =  ReadContainer { reader: Box::new(source), buffer: Vec::with_capacity(8192), seeker: None};
+            for _ in 0..8192 {
+                rc_unboxed.buffer.push(0);
+            }
+            let rc = Box::new( rc_unboxed );
 
-            if archive_read_open2()==ARCHIVE_OK {
+            let res = archive_read_open(
+                        *self.handler,
+                        std::boxed::into_raw(rc) as *mut c_void,
+                        ptr::null_mut(),
+                        arch_read,
+                        arch_close);
+            if res==ARCHIVE_OK {
                 Ok(self)
             } else {
-                Err("Failed to create")
+                Err(code_to_error(res))
             }
         }
     }
 
-    pub fn next_header<'s>(&'s self) -> Result<ArchiveEntryReader, &'static str> {
+    pub fn next_header<'s>(&'s self) -> Result<ArchiveEntryReader, ArchiveError> {
         unsafe {
             let mut entry: *mut Struct_archive_entry = ptr::null_mut();
-            if archive_read_next_header(*self.handler, &mut entry)==ARCHIVE_OK {
+            let res = archive_read_next_header(*self.handler, &mut entry);
+            if res==ARCHIVE_OK {
                 Ok( ArchiveEntryReader { entry: entry, handler: self.handler.clone() } )
             } else {
-                Err("Ok something ends")
+                Err(code_to_error(res))
             }
         }
     }
@@ -111,6 +219,7 @@ impl Drop for Reader {
 	}
 }
 
+#[allow(raw_pointer_derive)]
 #[derive(PartialEq, Clone)]
 pub struct Writer {
 	handler: Rc<*mut Struct_archive>
@@ -137,6 +246,7 @@ impl Writer {
 	}
 }
 
+#[allow(raw_pointer_derive)]
 #[derive(PartialEq, Clone)]
 pub struct WriterToDisk {
 	handler: Rc<*mut Struct_archive>
@@ -149,7 +259,7 @@ impl WriterToDisk {
 			if h.is_null() {
 					Err(AllocationError)
 			} else {
-					Ok(Writer { handler: Rc::new(h) })
+					Ok(WriterToDisk { handler: Rc::new(h) })
 			}
 		}
 	}
