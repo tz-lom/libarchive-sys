@@ -7,7 +7,8 @@
 #![allow(non_camel_case_types)]
 #![feature(trace_macros)]
 #![feature(concat_idents)]
-#![feature(alloc)]
+#![feature(box_raw)]
+#![feature(rc_unique)]
 
 
 mod ffi;
@@ -18,7 +19,6 @@ use std::ffi::CString;
 use std::ffi::CStr;
 use std::rc::Rc;
 use std::io::{Read, Seek};
-use std::rc;
 use std::error::Error;
 use std::any::Any;
 
@@ -88,7 +88,7 @@ extern "C" fn arch_read(arch: *mut Struct_archive, _client_data: *mut c_void, _b
         let mut rc = Box::from_raw(_client_data as *mut ReadContainer);
         *_buffer = rc.buffer.as_mut_ptr() as *mut c_void;
         let size = rc.read_bytes();
-        std::boxed::into_raw(rc);
+        Box::into_raw(rc);
 
         if size.is_err() {
             let err = size.unwrap_err();
@@ -114,12 +114,12 @@ extern "C" fn arch_skip(_: *mut Struct_archive, _client_data: *mut c_void, reque
 
         // we can't return error code here, but if we return 0 normal read will be called, where error code will be set
         if rc.seeker.is_none() {
-            std::boxed::into_raw(rc);
+            Box::into_raw(rc);
             return 0;
         }
         let size = rc.seeker.as_mut().unwrap().seek(std::io::SeekFrom::Current(request)).unwrap_or(0);
 
-        std::boxed::into_raw(rc);
+        Box::into_raw(rc);
         return size as int64_t;
     }
 }
@@ -186,7 +186,7 @@ impl Reader {
 
             let res = archive_read_open(
                         *self.handler,
-                        std::boxed::into_raw(rc) as *mut c_void,
+                        Box::into_raw(rc) as *mut c_void,
                         ptr::null_mut(),
                         arch_read,
                         arch_close);
@@ -213,7 +213,7 @@ impl Reader {
 
 impl Drop for Reader {
 	fn drop(&mut self) {
-		if rc::is_unique(&self.handler) {
+		if Rc::is_unique(&self.handler) {
 			unsafe { archive_read_free(*self.handler); }
 		}
 	}
@@ -227,7 +227,7 @@ pub struct Writer {
 
 impl Drop for Writer {
 	fn drop(&mut self) {
-		if rc::is_unique(&self.handler) {
+		if Rc::is_unique(&self.handler) {
 			unsafe { archive_write_free(*self.handler); }
 		}
 	}
@@ -267,7 +267,7 @@ impl WriterToDisk {
 
 impl Drop for WriterToDisk {
 	fn drop(&mut self) {
-		if rc::is_unique(&self.handler) {
+		if Rc::is_unique(&self.handler) {
 			unsafe { archive_write_free(*self.handler); }
 		}
 	}
