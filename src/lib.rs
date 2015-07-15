@@ -151,6 +151,13 @@ impl Reader {
         }
         self
     }
+    pub fn support_format_raw(self) -> Self {
+        unsafe {
+            archive_read_support_format_raw(*self.handler);
+        }
+        self
+    }
+
 
     pub fn open_filename(self, fileName: &str, bufferSize: u64 ) -> Result<Self, ArchiveError> {
         let fname = CString::new(fileName).unwrap();
