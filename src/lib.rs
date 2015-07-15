@@ -312,6 +312,25 @@ impl ArchiveEntryReader {
         Reader { handler: self.handler.clone() }
     }
 
+    pub fn extract_to(self, path : &str) -> Result<Self, ArchiveError> {
+        let extract_path = CString::new(path).unwrap();
+        unsafe {
+            archive_entry_set_pathname(self.entry, extract_path.as_ptr());
+            self.extract()
+        }
+    }
+    pub fn extract(self) -> Result<Self, ArchiveError> {        
+        unsafe {
+          let res = archive_read_extract(*self.handler, self.entry, 0);
+          if res==ARCHIVE_OK {
+              Ok(self)
+          } else {
+            Err(code_to_error(res))
+          }
+        }
+    }
+
+
     get_time!(access_time, atime);
     get_time!(creation_time, birthtime);
     get_time!(inode_change_time, ctime);
