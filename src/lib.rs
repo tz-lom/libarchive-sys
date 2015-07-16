@@ -44,6 +44,26 @@ pub enum ArchiveError {
     Eof,
     Fatal
 }
+#[derive(Debug)]
+pub enum ArchiveExtractFlag {
+    Owner,
+    Perm,
+    Time,
+    No_Overwrite,
+    Unlink,
+    Acl,
+    Fflags,
+    Xattr,
+    Secure_Symlinks,
+    Secure_Nodotdot,
+    No_Autodir,
+    No_Overwrite_Newer,
+    Sparse,
+    Mac_Metadata,
+    No_Hfs_Compression,
+    Hfs_Compression_Forced,
+    Secure_Noabsolutepaths
+}
 /*
 impl fmt::Debug for AllocationError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -68,6 +88,33 @@ fn code_to_error(code: c_int) -> ArchiveError {
         ARCHIVE_FATAL => { return ArchiveError::Fatal; }
         _ => { panic!(); }
     }
+}
+
+fn flags_to_code(flags : Vec<ArchiveExtractFlag>) -> c_int {
+    let mut flags_code : c_int = 0;
+    for flag in flags.into_iter() {
+      let flag_code : c_int = match flag {
+          ArchiveExtractFlag::Owner => ARCHIVE_EXTRACT_OWNER,
+          ArchiveExtractFlag::Perm => ARCHIVE_EXTRACT_PERM,
+          ArchiveExtractFlag::Time => ARCHIVE_EXTRACT_TIME,
+          ArchiveExtractFlag::No_Overwrite => ARCHIVE_EXTRACT_NO_OVERWRITE,
+          ArchiveExtractFlag::Unlink => ARCHIVE_EXTRACT_UNLINK,
+          ArchiveExtractFlag::Acl => ARCHIVE_EXTRACT_ACL,
+          ArchiveExtractFlag::Fflags => ARCHIVE_EXTRACT_FFLAGS,
+          ArchiveExtractFlag::Xattr => ARCHIVE_EXTRACT_XATTR,
+          ArchiveExtractFlag::Secure_Symlinks => ARCHIVE_EXTRACT_SECURE_SYMLINKS,
+          ArchiveExtractFlag::Secure_Nodotdot => ARCHIVE_EXTRACT_SECURE_NODOTDOT,
+          ArchiveExtractFlag::No_Autodir => ARCHIVE_EXTRACT_NO_AUTODIR,
+          ArchiveExtractFlag::No_Overwrite_Newer => ARCHIVE_EXTRACT_NO_OVERWRITE_NEWER,
+          ArchiveExtractFlag::Sparse => ARCHIVE_EXTRACT_SPARSE,
+          ArchiveExtractFlag::Mac_Metadata => ARCHIVE_EXTRACT_MAC_METADATA,
+          ArchiveExtractFlag::No_Hfs_Compression => ARCHIVE_EXTRACT_NO_HFS_COMPRESSION,
+          ArchiveExtractFlag::Hfs_Compression_Forced => ARCHIVE_EXTRACT_HFS_COMPRESSION_FORCED,
+          ArchiveExtractFlag::Secure_Noabsolutepaths => ARCHIVE_EXTRACT_SECURE_NOABSOLUTEPATHS
+      };
+      flags_code |= flag_code;
+    }
+    flags_code
 }
 
 struct ReadContainer {
@@ -319,16 +366,16 @@ impl ArchiveEntryReader {
         Reader { handler: self.handler.clone() }
     }
 
-    pub fn extract_to(self, path : &str) -> Result<Self, ArchiveError> {
+    pub fn extract_to(self, path : &str, flags : Vec<ArchiveExtractFlag>) -> Result<Self, ArchiveError> {
         let extract_path = CString::new(path).unwrap();
         unsafe {
             archive_entry_set_pathname(self.entry, extract_path.as_ptr());
-            self.extract()
+            self.extract(flags)
         }
     }
-    pub fn extract(self) -> Result<Self, ArchiveError> {        
+    pub fn extract(self,flags : Vec<ArchiveExtractFlag>) -> Result<Self, ArchiveError> {        
         unsafe {
-          let res = archive_read_extract(*self.handler, self.entry, 0);
+          let res = archive_read_extract(*self.handler, self.entry, flags_to_code(flags));
           if res==ARCHIVE_OK {
               Ok(self)
           } else {

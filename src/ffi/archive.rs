@@ -50,6 +50,46 @@ pub const ARCHIVE_RETRY:	c_int = -10;
 pub const ARCHIVE_EOF:		c_int = 1;
 pub const ARCHIVE_FATAL:	c_int = -30;
 
+/* The "flags" argument selects optional behavior, 'OR' the flags you want. */
+
+/* Default: Do not try to set owner/group. */
+pub const ARCHIVE_EXTRACT_OWNER: c_int = 0x0001;
+/* Default: Do obey umask, do not restore SUID/SGID/SVTX bits. */
+pub const ARCHIVE_EXTRACT_PERM: c_int = 0x0002;
+/* Default: Do not restore mtime/atime. */
+pub const ARCHIVE_EXTRACT_TIME: c_int = 0x0004;
+/* Default: Replace existing files. */
+pub const ARCHIVE_EXTRACT_NO_OVERWRITE: c_int = 0x0008;
+/* Default: Try create first, unlink only if create fails with EEXIST. */
+pub const ARCHIVE_EXTRACT_UNLINK: c_int = 0x0010;
+/* Default: Do not restore ACLs. */
+pub const ARCHIVE_EXTRACT_ACL: c_int = 0x0020;
+/* Default: Do not restore fflags. */
+pub const ARCHIVE_EXTRACT_FFLAGS: c_int = 0x0040;
+/* Default: Do not restore xattrs. */
+pub const ARCHIVE_EXTRACT_XATTR: c_int = 0x0080;
+/* Default: Do not try to guard against extracts redirected by symlinks. */
+/* Note: With ARCHIVE_EXTRACT_UNLINK, will remove any intermediate symlink. */
+pub const ARCHIVE_EXTRACT_SECURE_SYMLINKS: c_int = 0x0100;
+/* Default: Do not reject entries with '..' as path elements. */
+pub const ARCHIVE_EXTRACT_SECURE_NODOTDOT: c_int = 0x0200;
+/* Default: Create parent directories as needed. */
+pub const ARCHIVE_EXTRACT_NO_AUTODIR: c_int = 0x0400;
+/* Default: Overwrite files, even if one on disk is newer. */
+pub const ARCHIVE_EXTRACT_NO_OVERWRITE_NEWER: c_int = 0x0800;
+/* Detect blocks of 0 and write holes instead. */
+pub const ARCHIVE_EXTRACT_SPARSE: c_int = 0x1000;
+/* Default: Do not restore Mac extended metadata. */
+/* This has no effect except on Mac OS. */
+pub const ARCHIVE_EXTRACT_MAC_METADATA: c_int = 0x2000;
+/* Default: Use HFS+ compression if it was compressed. */
+/* This has no effect except on Mac OS v10.6 or later. */
+pub const ARCHIVE_EXTRACT_NO_HFS_COMPRESSION: c_int = 0x4000;
+/* Default: Do not use HFS+ compression if it was not compressed. */
+/* This has no effect except on Mac OS v10.6 or later. */
+pub const ARCHIVE_EXTRACT_HFS_COMPRESSION_FORCED: c_int = 0x8000;
+/* Default: Do not reject entries with absolute paths */
+pub const ARCHIVE_EXTRACT_SECURE_NOABSOLUTEPATHS: c_int = 0x10000;
 
 extern "C" {
      pub fn archive_version_number() -> c_int;
