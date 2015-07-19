@@ -307,13 +307,19 @@ impl Drop for Reader {
 #[allow(raw_pointer_derive)]
 #[derive(PartialEq, Clone)]
 pub struct Writer {
-	handler: Rc<*mut Struct_archive>
+	handler: Rc<*mut Struct_archive>,
+  outUsed : *mut size_t,
+  opened : bool
 }
 
 impl Drop for Writer {
 	fn drop(&mut self) {
 		if Rc::is_unique(&self.handler) {
-			unsafe { archive_write_free(*self.handler); }
+			unsafe { 
+        if self.opened {
+          archive_write_close(*self.handler); }
+        archive_write_free(*self.handler); 
+        drop(Box::from_raw(self.outUsed)); }
 		}
 	}
 }
@@ -325,7 +331,9 @@ impl Writer {
 			if h.is_null() {
 				Err(AllocationError)
 			} else {
-				Ok(Writer { handler: Rc::new(h) })
+        let mut init_used: Box<size_t> = Box::new(0);
+        let outUsed: *mut size_t = &mut *init_used;
+				Ok(Writer { handler: Rc::new(h), outUsed: outUsed, opened: false })
 			}
 		}
 	}
@@ -376,6 +384,43 @@ impl Writer {
         Err(code_to_error(res))
       }
     }
+  }
+
+  pub fn open_filename(&mut self, fileName: &str) -> Result<&mut Self, ArchiveError> {
+      let fname = CString::new(fileName).unwrap();
+      unsafe {
+          let res = archive_write_open_filename(*self.handler, fname.as_ptr());
+          if res==ARCHIVE_OK {
+              self.opened = true;
+              Ok(self)
+          } else {
+              Err(code_to_error(res))
+          }
+      }
+  }
+
+  pub fn open_memory(&mut self, memory: &mut [u8]) -> Result<&mut Self, ArchiveError> {
+      unsafe {
+          let memptr: *mut u8 = &mut memory[0];
+          let res = archive_write_open_memory(*self.handler, memptr as *mut c_void, memory.len() as u64, self.outUsed);
+          if res==ARCHIVE_OK {
+              self.opened = true;
+              Ok(self)
+          } else {
+              Err(code_to_error(res))
+          }
+      }
+  }
+
+  pub fn write_header(self, entry: ArchiveEntryReader) -> Result<Self, ArchiveError> {
+      unsafe {
+        let res = archive_write_header(*self.handler, entry.entry);
+        if res==ARCHIVE_OK {
+            Ok(self)
+        } else {
+            Err(code_to_error(res))
+        }
+      }
   }
 
 }
