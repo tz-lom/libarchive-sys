@@ -64,6 +64,37 @@ pub enum ArchiveExtractFlag {
     Hfs_Compression_Forced,
     Secure_Noabsolutepaths
 }
+
+pub enum ArchiveFormat {
+    _7Zip,
+    Ar_Bsd,
+    Ar_Svr4,
+    Cpio,
+    Cpio_newc,
+    Gnutar,
+    Iso9600,
+    Mtree,
+    Mtree_Classic,
+    Pax,
+    Pax_Restricted,
+    Shar,
+    Shar_Dump,
+    Ustar,
+    V7tar,
+    Xar,
+    Zip
+}
+
+pub enum ArchiveFilter {
+  Bzip2,
+  Compress,
+  Gzip,
+  Lzip,
+  Lzma,
+  None,
+  // TODO : Program(&str)
+  Xz
+}
 /*
 impl fmt::Debug for AllocationError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -298,6 +329,55 @@ impl Writer {
 			}
 		}
 	}
+  pub fn add_filter(self, filter : ArchiveFilter) -> Result<Self, ArchiveError> {
+    unsafe {
+      let res = match filter {
+        ArchiveFilter::Bzip2 => archive_write_add_filter_bzip2(*self.handler),
+        ArchiveFilter::Compress => archive_write_add_filter_compress(*self.handler),
+        ArchiveFilter::Gzip => archive_write_add_filter_gzip(*self.handler),
+        ArchiveFilter::Lzip => archive_write_add_filter_lzip(*self.handler),
+        ArchiveFilter::Lzma => archive_write_add_filter_lzma(*self.handler),
+        ArchiveFilter::None => archive_write_add_filter_none(*self.handler),
+        // TODO : Program(&str)
+        ArchiveFilter::Xz => archive_write_add_filter_xz(*self.handler)
+      };
+      if res==ARCHIVE_OK {
+        Ok(self)
+      } else {
+        Err(code_to_error(res))
+      }
+    }
+  }
+
+  pub fn set_format(self, format : ArchiveFormat) -> Result<Self, ArchiveError> {
+    unsafe {
+      let res = match format {
+        ArchiveFormat::_7Zip => archive_write_set_format_7zip(*self.handler),
+        ArchiveFormat::Ar_Bsd => archive_write_set_format_ar_bsd(*self.handler),
+        ArchiveFormat::Ar_Svr4 => archive_write_set_format_ar_svr4(*self.handler),
+        ArchiveFormat::Cpio => archive_write_set_format_cpio(*self.handler),
+        ArchiveFormat::Cpio_newc => archive_write_set_format_cpio_newc(*self.handler),
+        ArchiveFormat::Gnutar => archive_write_set_format_gnutar(*self.handler),
+        ArchiveFormat::Iso9600 => archive_write_set_format_iso9660(*self.handler),
+        ArchiveFormat::Mtree => archive_write_set_format_mtree(*self.handler),
+        ArchiveFormat::Mtree_Classic => archive_write_set_format_mtree_classic(*self.handler),
+        ArchiveFormat::Pax => archive_write_set_format_pax(*self.handler),
+        ArchiveFormat::Pax_Restricted => archive_write_set_format_pax_restricted(*self.handler),
+        ArchiveFormat::Shar => archive_write_set_format_shar(*self.handler),
+        ArchiveFormat::Shar_Dump => archive_write_set_format_shar_dump(*self.handler),
+        ArchiveFormat::Ustar => archive_write_set_format_ustar(*self.handler),
+        ArchiveFormat::V7tar => archive_write_set_format_v7tar(*self.handler),
+        ArchiveFormat::Xar => archive_write_set_format_xar(*self.handler),
+        ArchiveFormat::Zip => archive_write_set_format_zip(*self.handler),
+      };
+      if res==ARCHIVE_OK {
+        Ok(self)
+      } else {
+        Err(code_to_error(res))
+      }
+    }
+  }
+
 }
 
 #[allow(raw_pointer_derive)]
