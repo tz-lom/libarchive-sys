@@ -295,17 +295,17 @@ impl Reader {
         }
     }
 
-    pub fn read_data<'s>(&'s self, size : size_t) -> Result<*mut u8, ArchiveError> {
+    pub fn read_data<'s>(&'s self, size : size_t) -> Result<Vec<u8>, ArchiveError> {
         unsafe {
-          let chunk : *mut u8 = ptr::null_mut();
-          let res = archive_read_data(*self.handler, chunk as *mut c_void, size) as i32;
+          let mut chunk_vec = Vec::with_capacity(size as usize);
+          let chunk_ptr = chunk_vec.as_mut_ptr();
+          let res = archive_read_data(*self.handler, chunk_ptr as *mut c_void, size) as i32;
           if (res==ARCHIVE_FATAL) || (res==ARCHIVE_WARN) || (res==ARCHIVE_RETRY) {
             Err(code_to_error(res))
           } else if res==0 {
             Err(code_to_error(ARCHIVE_EOF))
-          }
-          else {
-            Ok(chunk)
+          } else {
+            Ok(chunk_vec)
           }
         }
     }
@@ -430,11 +430,12 @@ impl Writer {
       }
   }
 
-  pub fn write_data(self, data: &str) -> Result<Self, ArchiveError> {
+  pub fn write_data(self, data: Vec<u8>) -> Result<Self, ArchiveError> {
       unsafe {
-        let data_bytes = CString::new(data).unwrap();
+        let data_len = data.len();
+        let data_bytes = CString::from_vec_unchecked(data);
         // TODO: How to handle errors here?
-        archive_write_data(*self.handler, data_bytes.as_ptr() as *mut c_void, data.len() as u64);
+        archive_write_data(*self.handler, data_bytes.as_ptr() as *mut c_void, data_len as u64);
       }
       Ok(self)
   }
