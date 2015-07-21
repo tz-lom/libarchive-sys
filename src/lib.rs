@@ -337,9 +337,9 @@ impl Writer {
 			}
 		}
 	}
-  pub fn add_filter(self, filter : ArchiveFilter) -> Result<Self, ArchiveError> {
+  pub fn add_filter(self, filter : ArchiveFilter) -> Self {
     unsafe {
-      let res = match filter {
+      match filter {
         ArchiveFilter::Bzip2 => archive_write_add_filter_bzip2(*self.handler),
         ArchiveFilter::Compress => archive_write_add_filter_compress(*self.handler),
         ArchiveFilter::Gzip => archive_write_add_filter_gzip(*self.handler),
@@ -349,17 +349,13 @@ impl Writer {
         // TODO : Program(&str)
         ArchiveFilter::Xz => archive_write_add_filter_xz(*self.handler)
       };
-      if res==ARCHIVE_OK {
-        Ok(self)
-      } else {
-        Err(code_to_error(res))
-      }
     }
+    self
   }
 
-  pub fn set_format(self, format : ArchiveFormat) -> Result<Self, ArchiveError> {
+  pub fn set_format(self, format : ArchiveFormat) -> Self {
     unsafe {
-      let res = match format {
+      match format {
         ArchiveFormat::_7Zip => archive_write_set_format_7zip(*self.handler),
         ArchiveFormat::Ar_Bsd => archive_write_set_format_ar_bsd(*self.handler),
         ArchiveFormat::Ar_Svr4 => archive_write_set_format_ar_svr4(*self.handler),
@@ -378,12 +374,8 @@ impl Writer {
         ArchiveFormat::Xar => archive_write_set_format_xar(*self.handler),
         ArchiveFormat::Zip => archive_write_set_format_zip(*self.handler),
       };
-      if res==ARCHIVE_OK {
-        Ok(self)
-      } else {
-        Err(code_to_error(res))
-      }
     }
+    self
   }
 
   pub fn open_filename(&mut self, fileName: &str) -> Result<&mut Self, ArchiveError> {
