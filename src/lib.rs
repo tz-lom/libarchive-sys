@@ -435,8 +435,13 @@ impl Writer {
         archive_entry_set_perm(new_entry, 0644);
         let c_pathname = CString::new(pathname).unwrap();
         archive_entry_set_pathname(new_entry, c_pathname.as_ptr());
-        let new_entryreader = ArchiveEntryReader { entry: new_entry, handler: self.handler.clone() };
-        self.write_header(new_entryreader)
+        
+        let res = archive_write_header(*self.handler, new_entry);
+        if res==ARCHIVE_OK {
+          Ok(self)
+        } else {
+          Err(code_to_error(res))
+        }
       }
   }
 
