@@ -305,6 +305,7 @@ impl Reader {
           } else if res==0 {
             Err(code_to_error(ARCHIVE_EOF))
           } else {
+            chunk_vec.set_len(size as usize);
             Ok(chunk_vec)
           }
         }
