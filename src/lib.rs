@@ -294,6 +294,21 @@ impl Reader {
             }
         }
     }
+
+    pub fn read_data<'s>(&'s self, size : size_t) -> Result<*mut u8, ArchiveError> {
+        unsafe {
+          let chunk : *mut u8 = ptr::null_mut();
+          let res = archive_read_data(*self.handler, chunk as *mut c_void, size) as i32;
+          if (res==ARCHIVE_FATAL) || (res==ARCHIVE_WARN) || (res==ARCHIVE_RETRY) {
+            Err(code_to_error(res))
+          } else if res==0 {
+            Err(code_to_error(ARCHIVE_EOF))
+          }
+          else {
+            Ok(chunk)
+          }
+        }
+    }
 }
 
 impl Drop for Reader {
