@@ -442,7 +442,7 @@ impl Writer {
         let new_entry = archive_entry_new();
 
         archive_entry_set_size(new_entry, pathname.len() as i64); // Note 3
-        archive_entry_set_perm(new_entry, 0644);
+        //archive_entry_set_perm(new_entry, 0644);
         let entry = ArchiveEntryReader { entry: new_entry, handler: self.handler.clone() };
         entry.set_filetype(ArchiveEntryFiletype::AE_IFREG);
         entry.set_pathname(pathname);
