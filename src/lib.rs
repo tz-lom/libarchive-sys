@@ -419,7 +419,7 @@ impl Writer {
       }
   }
 
-  pub fn write_header(self, entry: ArchiveEntryReader) -> Result<Self, ArchiveError> {
+  pub fn write_header(&mut self, entry: ArchiveEntryReader) -> Result<&mut Self, ArchiveError> {
       unsafe {
         let res = archive_write_header(*self.handler, entry.entry);
         if res==ARCHIVE_OK {
@@ -430,7 +430,7 @@ impl Writer {
       }
   }
 
-  pub fn write_data(self, data: Vec<u8>) -> Result<Self, ArchiveError> {
+  pub fn write_data(&mut self, data: Vec<u8>) -> Result<&mut Self, ArchiveError> {
       unsafe {
         let data_len = data.len();
         let data_bytes = CString::from_vec_unchecked(data);
