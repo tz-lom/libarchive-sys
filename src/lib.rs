@@ -95,6 +95,17 @@ pub enum ArchiveFilter {
   // TODO : Program(&str)
   Xz
 }
+
+pub enum ArchiveEntryFiletype {
+  AE_IFMT  ,
+  AE_IFREG ,
+  AE_IFLNK ,
+  AE_IFSOCK,
+  AE_IFCHR ,
+  AE_IFBLK ,
+  AE_IFDIR ,
+  AE_IFIFO 
+}
 /*
 impl fmt::Debug for AllocationError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -431,17 +442,12 @@ impl Writer {
         let new_entry = archive_entry_new();
 
         archive_entry_set_size(new_entry, pathname.len() as i64); // Note 3
-        //archive_entry_set_filetype(new_entry, AE_IFREG);
         archive_entry_set_perm(new_entry, 0644);
-        let c_pathname = CString::new(pathname).unwrap();
-        archive_entry_set_pathname(new_entry, c_pathname.as_ptr());
-        
-        let res = archive_write_header(*self.handler, new_entry);
-        if res==ARCHIVE_OK {
-          Ok(self)
-        } else {
-          Err(code_to_error(res))
-        }
+        let entry = ArchiveEntryReader { entry: new_entry, handler: self.handler.clone() };
+        entry.set_filetype(ArchiveEntryFiletype::AE_IFREG);
+        entry.set_pathname(pathname);
+
+        self.write_header(entry)
       }
   }
 
@@ -527,6 +533,29 @@ impl ArchiveEntryReader {
         unsafe {
             wrap_to_string(archive_entry_sourcepath(self.entry))
         }
+    }
+
+    pub fn set_filetype(&self, filetype: ArchiveEntryFiletype) {
+      let c_type = match filetype {
+        ArchiveEntryFiletype::AE_IFMT   => 0170000,
+        ArchiveEntryFiletype::AE_IFREG  => 0100000,
+        ArchiveEntryFiletype::AE_IFLNK  => 0120000,
+        ArchiveEntryFiletype::AE_IFSOCK => 0140000,
+        ArchiveEntryFiletype::AE_IFCHR  => 0020000,
+        ArchiveEntryFiletype::AE_IFBLK  => 0060000,
+        ArchiveEntryFiletype::AE_IFDIR  => 0040000,
+        ArchiveEntryFiletype::AE_IFIFO  => 0010000
+      };
+      unsafe {
+        archive_entry_set_filetype(self.entry, c_type);
+      }
+    }
+
+    pub fn set_pathname(&self, pathname: &str) {
+      let c_pathname = CString::new(pathname).unwrap();
+      unsafe {
+        archive_entry_set_pathname(self.entry, c_pathname.as_ptr());
+      }
     }
 
     pub fn archive(&self) -> Reader {
