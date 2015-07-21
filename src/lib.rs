@@ -323,7 +323,7 @@ impl Drop for Reader {
 #[derive(PartialEq, Clone)]
 pub struct Writer {
 	handler: Rc<*mut Struct_archive>,
-  outUsed : *mut size_t,
+  outUsed : Rc<*mut size_t>,
   opened : bool
 }
 
@@ -334,7 +334,7 @@ impl Drop for Writer {
         if self.opened {
           archive_write_close(*self.handler); }
         archive_write_free(*self.handler); 
-        drop(Box::from_raw(self.outUsed)); }
+        drop(Box::from_raw(*self.outUsed)); }
 		}
 	}
 }
@@ -348,7 +348,7 @@ impl Writer {
 			} else {
         let mut init_used: Box<size_t> = Box::new(0);
         let outUsed: *mut size_t = &mut *init_used;
-				Ok(Writer { handler: Rc::new(h), outUsed: outUsed, opened: false })
+				Ok(Writer { handler: Rc::new(h), outUsed: Rc::new(outUsed), opened: false })
 			}
 		}
 	}
@@ -409,7 +409,7 @@ impl Writer {
   pub fn open_memory(&mut self, memory: &mut [u8]) -> Result<&mut Self, ArchiveError> {
       unsafe {
           let memptr: *mut u8 = &mut memory[0];
-          let res = archive_write_open_memory(*self.handler, memptr as *mut c_void, memory.len() as u64, self.outUsed);
+          let res = archive_write_open_memory(*self.handler, memptr as *mut c_void, memory.len() as u64, *self.outUsed);
           if res==ARCHIVE_OK {
               self.opened = true;
               Ok(self)
