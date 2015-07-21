@@ -429,6 +429,10 @@ impl Writer {
   pub fn write_header_new(&mut self, pathname : &str) -> Result<&mut Self, ArchiveError> {
       unsafe {
         let new_entry = archive_entry_new();
+
+        archive_entry_set_size(new_entry, pathname.len() as i64); // Note 3
+        //archive_entry_set_filetype(new_entry, AE_IFREG);
+        archive_entry_set_perm(new_entry, 0644);
         let c_pathname = CString::new(pathname).unwrap();
         archive_entry_set_pathname(new_entry, c_pathname.as_ptr());
         let new_entryreader = ArchiveEntryReader { entry: new_entry, handler: self.handler.clone() };
