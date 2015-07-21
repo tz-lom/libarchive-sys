@@ -415,6 +415,15 @@ impl Writer {
       }
   }
 
+  pub fn write_data(self, data: &str) -> Result<Self, ArchiveError> {
+      unsafe {
+        let data_bytes = CString::new(data).unwrap();
+        // TODO: How to handle errors here?
+        archive_write_data(*self.handler, data_bytes.as_ptr() as *mut c_void, data.len() as u64);
+      }
+      Ok(self)
+  }
+
 }
 
 #[allow(raw_pointer_derive)]
