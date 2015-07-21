@@ -445,6 +445,16 @@ impl Writer {
       }
       Ok(self)
   }
+  pub fn write_finish_entry(&mut self) -> Result<&mut Self, ArchiveError> {
+      unsafe {
+        let res = archive_write_finish_entry(*self.handler);
+        if res==ARCHIVE_OK {
+            Ok(self)
+        } else {
+            Err(code_to_error(res))
+        }
+      }
+  }
 
 }
 
