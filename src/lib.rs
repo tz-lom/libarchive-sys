@@ -426,6 +426,16 @@ impl Writer {
       }
   }
 
+  pub fn write_header_new(&mut self, pathname : &str) -> Result<&mut Self, ArchiveError> {
+      unsafe {
+        let new_entry = archive_entry_new();
+        let c_pathname = CString::new(pathname).unwrap();
+        archive_entry_set_pathname(new_entry, c_pathname.as_ptr());
+        let new_entryreader = ArchiveEntryReader { entry: new_entry, handler: self.handler.clone() };
+        self.write_header(new_entryreader)
+      }
+  }
+
   pub fn write_data(&mut self, data: Vec<u8>) -> Result<&mut Self, ArchiveError> {
       unsafe {
         let data_len = data.len();
