@@ -334,7 +334,7 @@ impl Drop for Writer {
         if self.opened {
           archive_write_close(*self.handler); }
         archive_write_free(*self.handler); 
-        drop(Box::from_raw(*self.outUsed)); }
+      }
 		}
 	}
 }
