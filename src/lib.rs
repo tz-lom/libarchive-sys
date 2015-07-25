@@ -537,6 +537,12 @@ unsafe fn wrap_to_string(ptr: *const c_char) -> String {
 }
 
 impl ArchiveEntryReader {
+    pub fn size(&self) -> i64 {
+      unsafe {
+        archive_entry_size(self.entry)
+      }
+    }
+
     pub fn pathname(&self) -> String {
         unsafe {
             wrap_to_string(archive_entry_pathname(self.entry))
