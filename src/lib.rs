@@ -402,6 +402,21 @@ impl Writer {
     self
   }
 
+  pub fn set_compression(self, filter : ArchiveFilter) -> Self {
+    unsafe {
+      match filter {
+        ArchiveFilter::Bzip2 => archive_write_set_compression_bzip2(*self.handler),
+        ArchiveFilter::Compress => archive_write_set_compression_compress(*self.handler),
+        ArchiveFilter::Gzip => archive_write_set_compression_gzip(*self.handler),
+        ArchiveFilter::Lzip => archive_write_set_compression_lzip(*self.handler),
+        ArchiveFilter::Lzma => archive_write_set_compression_lzma(*self.handler),
+        ArchiveFilter::None => archive_write_set_compression_none(*self.handler),
+        ArchiveFilter::Xz => archive_write_set_compression_xz(*self.handler)
+      };
+    }
+    self
+  }
+
   pub fn open_filename(&mut self, fileName: &str) -> Result<&mut Self, ArchiveError> {
       let fname = CString::new(fileName).unwrap();
       unsafe {
