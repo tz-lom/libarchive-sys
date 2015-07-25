@@ -452,10 +452,11 @@ impl Writer {
       }
   }
 
-  pub fn write_header_new(&mut self, pathname : &str) -> Result<&mut Self, ArchiveError> {
+  pub fn write_header_new(&mut self, pathname: &str, entry_size: i64) -> Result<&mut Self, ArchiveError> {
       unsafe {
         let new_entry = archive_entry_new();
         archive_entry_set_perm(new_entry, 0o755);
+        archive_entry_set_size(new_entry, entry_size);
         let entry = ArchiveEntryReader { entry: new_entry, handler: self.handler.clone() };
         entry.set_filetype(ArchiveEntryFiletype::AE_IFREG);
         entry.set_pathname(pathname);
@@ -550,14 +551,14 @@ impl ArchiveEntryReader {
 
     pub fn set_filetype(&self, filetype: ArchiveEntryFiletype) {
       let c_type = match filetype {
-        ArchiveEntryFiletype::AE_IFMT   => 0170000,
-        ArchiveEntryFiletype::AE_IFREG  => 0100000,
-        ArchiveEntryFiletype::AE_IFLNK  => 0120000,
-        ArchiveEntryFiletype::AE_IFSOCK => 0140000,
-        ArchiveEntryFiletype::AE_IFCHR  => 0020000,
-        ArchiveEntryFiletype::AE_IFBLK  => 0060000,
-        ArchiveEntryFiletype::AE_IFDIR  => 0040000,
-        ArchiveEntryFiletype::AE_IFIFO  => 0010000
+        ArchiveEntryFiletype::AE_IFMT   => 0o170000,
+        ArchiveEntryFiletype::AE_IFREG  => 0o100000,
+        ArchiveEntryFiletype::AE_IFLNK  => 0o120000,
+        ArchiveEntryFiletype::AE_IFSOCK => 0o140000,
+        ArchiveEntryFiletype::AE_IFCHR  => 0o020000,
+        ArchiveEntryFiletype::AE_IFBLK  => 0o060000,
+        ArchiveEntryFiletype::AE_IFDIR  => 0o040000,
+        ArchiveEntryFiletype::AE_IFIFO  => 0o010000
       };
       unsafe {
         archive_entry_set_filetype(self.entry, c_type);
