@@ -8,7 +8,7 @@
 #![feature(trace_macros)]
 #![feature(concat_idents)]
 #![feature(box_raw)]
-#![feature(rc_unique)]
+#![feature(rc_counts)]
 
 
 mod ffi;
