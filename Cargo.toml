@@ -12,10 +12,11 @@ repository="https://github.com/tz-lom/libarchive-sys"
 build = "build.rs"
 
 [dependencies]
-time="*"
+time="^0.1.32"
+libc = "0.1.10"
 
 [lib]
-name = "Archive"
+name = "archive"
 
 [build-dependencies]
-pkg-config = "0.3.3"
+pkg-config = "^0.3.3"

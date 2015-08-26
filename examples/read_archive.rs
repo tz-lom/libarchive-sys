@@ -1,17 +1,15 @@
-extern crate Archive;
+extern crate archive;
 
-use Archive::*;
+use archive::*;
 
 fn main() {
-    let a = Reader::new().unwrap()
-        .support_filter_all()
-        .support_format_all()
-        .open_filename("archive.tar", 10240).unwrap();
+    let mut a = Reader::open_file("archive.tar", 10240).unwrap();
 
+    let mut i = a.entries();
     loop {
-        match a.next_header() {
-            Ok(e) => println!("{:?}", e.pathname()),
-            Err(_) => { break }
+        match i.next() {
+            Some(e) => println!("{:?}", e.path()),
+            None => { break }
         }
     }
 

@@ -1,22 +1,19 @@
-extern crate Archive;
+extern crate archive;
 
-use Archive::*;
+use archive::*;
 use std::fs::File;
 
 fn main() {
 
     let f = File::open("archive.tar").unwrap();
 
-    let a = Reader::new().unwrap()
-    .support_filter_all()
-    .support_format_all()
-    .open_stream(f).unwrap();
-
+    let mut a = Reader::open_stream(f).unwrap();
+    let mut i = a.entries();
     loop {
-        match a.next_header() {
-                Ok(e) => println!("{:?}", e.pathname()),
-                Err(_) => { break }
-            }
+        match i.next() {
+            Some(e) => println!("{:?}", e.path()),
+            None => { break }
+        }
     }
 
     println!("the end");
