@@ -95,7 +95,7 @@ extern "C" fn arch_close(arch: *mut Struct_archive, _client_data: *mut ::libc::c
 }
 
 impl Reader {
-    pub fn open_file(file_name: &str, buffer_size: u64 ) -> Result<Reader, ArchiveError> {
+    pub fn open_file(file_name: &str) -> Result<Reader, ArchiveError> {
         let fname = CString::new(file_name).unwrap();
         unsafe {
             let hnd = archive_read_new();
@@ -119,7 +119,7 @@ impl Reader {
             }
 
             let r = ArchiveHandle { handle: hnd, reader: None, buffer: Vec::new() };
-            let res = archive_read_open_filename(r.handle, fname.as_ptr(), buffer_size);
+            let res = archive_read_open_filename(r.handle, fname.as_ptr(), 10240);
             if res==ARCHIVE_OK {
                 Ok( Reader { arc: Rc::new(Box::new(r)) } )
             } else {
@@ -247,6 +247,30 @@ impl FastReadIterator {
                 Some( &self.entry )
             } else {
                 None
+            }
+        }
+    }
+}
+
+
+pub struct Writer {
+    arc: Rc<Box<ArchiveHandle>>
+}
+
+impl Writer {
+    pub fn open_file(file_name: &str) -> Result<Writer, ArchiveError> {
+        let fname = CString::new(file_name).unwrap();
+        unsafe {
+            let hnd = archive_write_new();
+            if hnd.is_null() {
+                return Err(ArchiveError::AllocationError);
+            }
+            let res = archive_write_open_filename(hnd, fname.as_ptr());
+            if res==ARCHIVE_OK {
+                Writer { Rc::new( Box::new( ArchiveHandle { handle: hnd, reader: None, buffer: Vec::new() } ) ) }
+            } else {
+                archive_write_free(hnd);
+                Err(code_to_error(res))
             }
         }
     }
