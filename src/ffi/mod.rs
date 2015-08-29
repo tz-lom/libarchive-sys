@@ -18,6 +18,15 @@ pub const ARCHIVE_RETRY:       ::libc::c_int = -10;
 pub const ARCHIVE_EOF:         ::libc::c_int = 1;
 pub const ARCHIVE_FATAL:       ::libc::c_int = -30;
 
+pub const AE_IFMT:             ::libc::c_uint = 0o170000;
+pub const AE_IFREG:            ::libc::c_uint = 0o100000;
+pub const AE_IFLNK:            ::libc::c_uint = 0o120000;
+pub const AE_IFSOCK:           ::libc::c_uint = 0o140000;
+pub const AE_IFCHR:            ::libc::c_uint = 0o020000;
+pub const AE_IFBLK:            ::libc::c_uint = 0o060000;
+pub const AE_IFDIR:            ::libc::c_uint = 0o040000;
+pub const AE_IFIFO:            ::libc::c_uint = 0o010000;
+
 pub type archive_read_callback =
     extern "C" fn(arg1: *mut Struct_archive,
                   _client_data: *mut ::libc::c_void,

@@ -6,20 +6,19 @@ use ffi::*;
 
 use std::rc::Rc;
 use std::ffi::CString;
-use std::io::{Seek, Read, Write};
-use std::error::Error;
+use std::io::{Read, Write};
+use std::error::Error as StdError;
 use std::any::Any;
+use std::path::Path;
+use std::fs::File;
 
 #[derive(Debug)]
-pub enum ArchiveError {
-    AllocationError,
-    InitializationError,
-    Ok,
-    Warn,
-    Failed,
-    Retry,
-    Eof,
-    Fatal
+pub enum Error {
+    Allocation,
+    Initialization,
+    Open,
+    EntryNotWritten,
+    EntryWrittenPartly
 }
 
 struct ArchiveHandle {
@@ -44,19 +43,6 @@ impl Drop for ArchiveHandle {
         }
     }
 }
-
-fn code_to_error(code: ::libc::c_int) -> ArchiveError {
-    match code {
-        ARCHIVE_OK     =>  ArchiveError::Ok,
-        ARCHIVE_WARN   =>  ArchiveError::Warn,
-        ARCHIVE_FAILED => ArchiveError::Failed,
-        ARCHIVE_RETRY  => ArchiveError::Retry,
-        ARCHIVE_EOF    => ArchiveError::Eof,
-        ARCHIVE_FATAL  => ArchiveError::Fatal,
-        _   => unreachable!()
-    }
-}
-
 
 pub struct Reader {
     arc: Rc<Box<ArchiveHandle>>
@@ -94,29 +80,36 @@ extern "C" fn arch_close(arch: *mut Struct_archive, _client_data: *mut ::libc::c
     return ARCHIVE_OK;
 }
 
+unsafe fn allow_all_formats(hnd: *mut ffi::Struct_archive) -> Result<(), Error > {
+    let res = archive_read_support_filter_all(hnd);
+    if res != ARCHIVE_OK {
+        archive_read_free(hnd);
+        return Err(Error::Initialization);
+    }
+    let res = archive_read_support_format_all(hnd);
+    if res != ARCHIVE_OK {
+        archive_read_free(hnd);
+        return Err(Error::Initialization);
+    }
+    let res = archive_read_support_compression_all(hnd);
+    if res != ARCHIVE_OK {
+        archive_read_free(hnd);
+        return Err(Error::Initialization);
+    }
+    Ok({})
+}
+
+
 impl Reader {
-    pub fn open_file(file_name: &str) -> Result<Reader, ArchiveError> {
-        let fname = CString::new(file_name).unwrap();
+    pub fn open_file<P: AsRef<Path>>(file: P) -> Result<Reader, Error> {
+        let fname = CString::new(file.as_ref().to_string_lossy().as_bytes()).unwrap();
         unsafe {
             let hnd = archive_read_new();
             if hnd.is_null() {
-                return Err(ArchiveError::AllocationError);
+                return Err(Error::Allocation);
             }
-            let res = archive_read_support_filter_all(hnd);
-            if res != ARCHIVE_OK {
-                archive_read_free(hnd);
-                return Err(ArchiveError::InitializationError);
-            }
-            let res = archive_read_support_format_all(hnd);
-            if res != ARCHIVE_OK {
-                archive_read_free(hnd);
-                return Err(ArchiveError::InitializationError);
-            }
-            let res = archive_read_support_compression_all(hnd);
-            if res != ARCHIVE_OK {
-                archive_read_free(hnd);
-                return Err(ArchiveError::InitializationError);
-            }
+
+            try!(allow_all_formats(hnd));
 
             let r = ArchiveHandle { handle: hnd, reader: None, buffer: Vec::new() };
             let res = archive_read_open_filename(r.handle, fname.as_ptr(), 10240);
@@ -124,38 +117,21 @@ impl Reader {
                 Ok( Reader { arc: Rc::new(Box::new(r)) } )
             } else {
                 archive_read_free(hnd);
-                Err(code_to_error(res))
+                Err(Error::Open)
             }
         }
     }
 
-    pub fn open_stream<T: Any+Read>(source: T) -> Result<Self, ArchiveError> {
+    pub fn open_stream<T: Any+Read>(source: T) -> Result<Self, Error> {
         unsafe {
             let hnd = archive_read_new();
             if hnd.is_null() {
-                return Err(ArchiveError::AllocationError);
-            }
-            let res = archive_read_support_filter_all(hnd);
-            if res != ARCHIVE_OK {
-                archive_read_free(hnd);
-                return Err(ArchiveError::InitializationError);
-            }
-            let res = archive_read_support_format_all(hnd);
-            if res != ARCHIVE_OK {
-                archive_read_free(hnd);
-                return Err(ArchiveError::InitializationError);
-            }
-            let res = archive_read_support_compression_all(hnd);
-            if res != ARCHIVE_OK {
-                archive_read_free(hnd);
-                return Err(ArchiveError::InitializationError);
+                return Err(Error::Allocation);
             }
 
-            let mut r = ArchiveHandle { handle: hnd, reader: Some(Box::new(source)), buffer: Vec::with_capacity(8192) };
-            for _ in 0..8192 {
-                r.buffer.push(0);
-            }
+            try!(allow_all_formats(hnd));
 
+            let r = ArchiveHandle { handle: hnd, reader: Some(Box::new(source)), buffer: vec![0; 8192] };
             let mut b = Box::new(r);
             let raw = &mut *b as *mut ArchiveHandle;
 
@@ -169,7 +145,8 @@ impl Reader {
             if res==ARCHIVE_OK {
                 Ok( Reader { arc: Rc::new(b) } )
             } else {
-                Err(code_to_error(res))
+                archive_read_free(hnd);
+                Err(Error::Open)
             }
         }
     }
@@ -177,13 +154,13 @@ impl Reader {
     pub fn entries(&mut self) -> FastReadIterator {
         FastReadIterator {
             arc: self.arc.clone(),
-            entry: ArchiveEntryReader{ entry: std::ptr::null_mut(), owned: false, arc: self.arc.clone() }
+            entry: Entry{ entry: std::ptr::null_mut(), owned: false, arc: self.arc.clone() }
          }
     }
 }
 /*
 impl<'a, T> IntoIterator for &'a mut Reader {
-    type Item = &'a ArchiveEntryReader
+    type Item = &'a Entry
     type IntoIter = FastReadIterator<'a>
 
     fn into_iter(self) -> FastReadIterator<'a> {
@@ -192,7 +169,7 @@ impl<'a, T> IntoIterator for &'a mut Reader {
 }
 */
 
-pub struct ArchiveEntryReader {
+pub struct Entry {
     entry: *mut Struct_archive_entry,
     owned: bool,
     arc: Rc<Box<ArchiveHandle>>
@@ -203,7 +180,7 @@ unsafe fn wrap_to_string(ptr: *const ::libc::c_char) -> String {
     String::from(std::str::from_utf8(path.to_bytes()).unwrap())
 }
 
-impl Drop for ArchiveEntryReader {
+impl Drop for Entry {
     fn drop(&mut self){
         if self.owned {
             unsafe {
@@ -214,7 +191,7 @@ impl Drop for ArchiveEntryReader {
     }
 }
 
-impl ArchiveEntryReader {
+impl Entry {
     pub fn path(&self) -> String {
         unsafe {
             wrap_to_string(archive_entry_pathname(self.entry))
@@ -232,17 +209,93 @@ impl ArchiveEntryReader {
             wrap_to_string(archive_entry_gname(self.entry))
         }
     }
+
+    pub fn set_path(&mut self, path: &str) {
+        unsafe {
+            archive_entry_update_pathname_utf8(self.entry, CString::new(path).unwrap().as_ptr());
+        }
+    }
+
+    pub fn save_file_by_path<P: AsRef<Path>>(&mut self, path: P) -> Result<(), Error> {
+        match File::open(path) {
+            Ok(file) => self.save_file(file),
+            Err(a) => { println!("oo {:?}", a); Err(Error::EntryNotWritten) }
+        }
+    }
+
+    pub fn set_permissions(&mut self, perm: u16) {
+        unsafe {
+            archive_entry_set_perm(self.entry, perm);
+        }
+    }
+
+    pub fn save_file(&mut self, file: File) -> Result<(), Error> {
+        match file.metadata() {
+            Ok(meta) => {
+                unsafe {
+                    if meta.file_type().is_dir() {
+                        archive_entry_set_filetype(self.entry, AE_IFDIR);
+                    }
+                    if meta.file_type().is_symlink() {
+                        archive_entry_set_filetype(self.entry, AE_IFLNK);
+                    }
+                    if meta.file_type().is_file() {
+                        archive_entry_set_filetype(self.entry, AE_IFREG);
+
+                    }
+                }
+                self.save_stream(file, meta.len())
+            },
+            Err(a) => { println!("{:?}", a); Err(Error::EntryNotWritten) }
+        }
+    }
+
+    pub fn save_stream<T: Read>(&mut self, mut stream: T, size: u64) -> Result<(), Error> {
+        unsafe {
+            archive_entry_set_size(self.entry, size as i64);
+            let ret = archive_write_header(self.arc.handle, self.entry);
+            if ret!=ARCHIVE_OK {
+                println!("le fu {:?}", ret);
+                return Err(Error::EntryNotWritten);
+            }
+            // traverce data in blocks of 8K
+
+            let mut buf:[u8; 8192] = [0; 8192];
+            let mut written = 0;
+
+            while written < size {
+                match stream.read(&mut buf) {
+                    Ok(0) => {
+                        return Err(Error::EntryWrittenPartly);
+                        },
+                    Ok(sz) => {
+                        let wsz = archive_write_data(self.arc.handle, buf.as_mut_ptr() as *const ::libc::c_void, sz as u64);
+                        if wsz!= sz as i64 {
+                            return Err(Error::EntryWrittenPartly);
+                        }
+                        written += sz as u64;
+                    },
+                    Err(_) => {
+                        return Err(Error::EntryWrittenPartly);
+                    }
+                }
+            }
+            Ok({})
+        }
+    }
+
+    //pub fn set_data_from_file(&mut self, )
 }
 
 pub struct FastReadIterator {
     arc: Rc<Box<ArchiveHandle>>,
-    entry: ArchiveEntryReader
+    entry: Entry
 }
 
 impl FastReadIterator {
-    pub fn next<'a>(&'a mut self) -> Option<&'a ArchiveEntryReader> {
+    pub fn next<'a>(&'a mut self) -> Option<&'a Entry> {
         unsafe {
-            let res = archive_read_next_header((*self.arc).handle, &mut self.entry.entry);
+            let res = archive_read_next_header(self.arc.handle, &mut self.entry.entry);
             if res==ARCHIVE_OK {
                 Some( &self.entry )
             } else {
@@ -257,21 +310,59 @@ pub struct Writer {
     arc: Rc<Box<ArchiveHandle>>
 }
 
+pub enum Format {
+    Tar,
+    TarGz,
+    TarXz
+}
+
+unsafe fn set_format(hnd: *mut ffi::Struct_archive, format: Format) -> Result<(), Error> {
+    use Format::*;
+
+    let res = try!(match format {
+        Tar  => Ok(archive_write_add_filter_none(hnd)),
+        TarXz => Ok(archive_write_add_filter_xz(hnd)),
+        TarGz => Ok(archive_write_add_filter_gzip(hnd))
+    });
+    if res!=ARCHIVE_OK {
+        return Err(Error::Initialization)
+    }
+
+    let res = try!(match format {
+        Tar | TarGz | TarXz => Ok(archive_write_set_format_ustar(hnd)),
+        });
+    if res!=ARCHIVE_OK {
+        return Err(Error::Initialization)
+    }
+
+    Ok({})
+}
+
 impl Writer {
-    pub fn open_file(file_name: &str) -> Result<Writer, ArchiveError> {
-        let fname = CString::new(file_name).unwrap();
+    pub fn open_file<P: AsRef<Path>>(file: P, format: Format) -> Result<Writer, Error> {
+        let fname = CString::new(file.as_ref().to_string_lossy().as_bytes()).unwrap();
         unsafe {
             let hnd = archive_write_new();
             if hnd.is_null() {
-                return Err(ArchiveError::AllocationError);
+                return Err(Error::Allocation);
             }
+
+            try!(set_format(hnd, format));
+
             let res = archive_write_open_filename(hnd, fname.as_ptr());
             if res==ARCHIVE_OK {
-                Writer { Rc::new( Box::new( ArchiveHandle { handle: hnd, reader: None, buffer: Vec::new() } ) ) }
+                Ok( Writer { arc: Rc::new( Box::new( ArchiveHandle { handle: hnd, reader: None, buffer: Vec::new() } ) ) } )
             } else {
                 archive_write_free(hnd);
-                Err(code_to_error(res))
+                Err(Error::Open)
             }
+        }
+    }
+
+    pub fn new_entry(&mut self) -> Entry {
+        unsafe {
+            let e = archive_entry_new();
+            Entry { entry: e, owned: true, arc: self.arc.clone() }
         }
     }
 }
