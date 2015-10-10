@@ -8,13 +8,12 @@ fn main() {
     let f = File::open("archive.tar").unwrap();
 
     let mut a = Reader::open_stream(f).unwrap();
-    let mut i = a.entries();
     loop {
-        match i.next() {
+        match a.next() {
             Some(e) => println!("{:?}", e.path()),
             None => { break }
         }
     }
 
-    println!("the end");
+    println!("-------------");
 }
