@@ -11,7 +11,7 @@ fn main(){
     loop {
         match from.next() {
             Some(e) => {
-                println!("{:?} {:?}", to.write_archive_entry(e), to.error_string());
+                println!("{:?} {:?}", to.add_archive_entry(e), to.error_string());
             },
             None => { break }
         }

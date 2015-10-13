@@ -7,7 +7,6 @@ pub mod ffi;
 pub use ffi::extract_flags::*;
 use ffi::*;
 
-use std::rc::Rc;
 use std::ffi::CString;
 use std::io::{Read, Write, Cursor};
 use std::error::Error as StdError;
@@ -24,6 +23,18 @@ pub enum Error {
     EntryWrittenPartly,
     EntryExtractedPartly,
     NotAFile
+}
+
+pub enum EntryType {
+    File,
+    Dir,
+    Block,
+    Link,
+    Fifo,
+    Character,
+    Socket,
+    Mt,
+    Undefined
 }
 
 pub trait ArchiveHandle {
@@ -50,6 +61,29 @@ pub trait Entry {
     fn is_file(&self) -> bool {
         unsafe {
             archive_entry_filetype(self.entry_handle()) as u32 == ffi::AE_IFREG
+        }
+    }
+
+    fn is_directory(&self) -> bool {
+        unsafe {
+            archive_entry_filetype(self.entry_handle()) as u32 == ffi::AE_IFDIR
+        }
+    }
+
+    fn entry_type(&self) -> EntryType {
+        unsafe {
+            match archive_entry_filetype(self.entry_handle()) as u32 {
+                AE_IFREG => EntryType::File,
+                AE_IFDIR => EntryType::Dir,
+                AE_IFBLK => EntryType::Block,
+                AE_IFLNK => EntryType::Link,
+                AE_IFIFO => EntryType::Fifo,
+                AE_IFCHR => EntryType::Character,
+                AE_IFSOCK => EntryType::Socket,
+                AE_IFMT => EntryType::Mt,
+                _ => EntryType::Undefined
+            }
+
         }
     }
 
@@ -83,9 +117,21 @@ pub trait Entry {
         }
     }
 
-    fn stub(&mut self) {
+    fn set_entry_type(&mut self, t: EntryType) {
         unsafe {
-            archive_entry_set_filetype(self.entry_handle(), AE_IFREG);
+            archive_entry_set_filetype(
+                self.entry_handle(),
+                match t {
+                    EntryType::File         => AE_IFREG,
+                    EntryType::Dir          => AE_IFDIR,
+                    EntryType::Block        => AE_IFBLK,
+                    EntryType::Link         => AE_IFLNK,
+                    EntryType::Fifo         => AE_IFIFO,
+                    EntryType::Character    => AE_IFCHR,
+                    EntryType::Socket       => AE_IFSOCK,
+                    EntryType::Mt           => AE_IFMT,
+                    EntryType::Undefined    => 0
+                });
         }
     }
 }
@@ -288,7 +334,9 @@ impl Drop for WriteEntry {
 impl WriteEntry {
     pub fn new() -> WriteEntry {
         unsafe {
-            WriteEntry { handle: archive_entry_new() }
+            let mut w = WriteEntry { handle: archive_entry_new() };
+            w.set_entry_type(EntryType::File);
+            w
         }
     }
 
@@ -445,7 +493,7 @@ impl Writer {
         }
     }
 
-    pub fn write_entry_stream<T: Read>(&mut self, entry: &mut Entry, mut stream: T) -> bool {
+    pub fn add_entry_stream<T: Read>(&mut self, entry: &mut Entry, mut stream: T) -> bool {
         unsafe {
             let mut buffer = Vec::new();
             match stream.read_to_end(&mut buffer) {
@@ -475,7 +523,7 @@ impl Writer {
         }
     }
 
-    pub fn write_archive_entry<E: ArchiveHandle+Entry>(&mut self, entry: &mut E) -> bool {
+    pub fn add_archive_entry<E: ArchiveHandle+Entry>(&mut self, entry: &mut E) -> bool {
         unsafe {
             ll_write_archive_entry(entry.archive_handle(), self.handle, entry.entry_handle())
         }
@@ -492,7 +540,11 @@ impl Writer {
         }
     }
 
-    pub fn write_file<P: AsRef<Path>>(&mut self, path: P) -> bool {
+    pub fn add_path<P: AsRef<Path>>(&mut self, path: P) -> bool {
+        self.add_path_with_callback(path, |e| true)
+    }
+
+    pub fn add_path_with_callback<P: AsRef<Path>, F>(&mut self, path: P, callback:F) -> bool where F: Fn(&mut ReaderEntry) -> bool {
         self.init_disk_reader();
         unsafe {
             if archive_read_disk_open(self.fsreader, CString::new(path.as_ref().to_string_lossy().as_bytes()).unwrap().as_ptr()) != ARCHIVE_OK {
@@ -509,21 +561,26 @@ impl Writer {
                     ARCHIVE_OK => {
                         archive_read_disk_descend(self.fsreader);
 
-                        let mut sparse : *mut Struct_archive_entry = std::ptr::null_mut();
-                        archive_entry_linkify(self.resolver, &mut entry, &mut sparse);
+                        let mut ecb = ReaderEntry { handle: entry, archive: self.fsreader};
 
-                        if ! entry.is_null() {
+                        if callback(&mut ecb) {
 
-                            if ! ll_write_archive_entry(self.fsreader, self.handle, entry) {
-                                archive_entry_free(entry);
-                                return false;
+                            let mut sparse : *mut Struct_archive_entry = std::ptr::null_mut();
+                            archive_entry_linkify(self.resolver, &mut entry, &mut sparse);
+
+                            if ! entry.is_null() {
+
+                                if ! ll_write_archive_entry(self.fsreader, self.handle, entry) {
+                                    archive_entry_free(entry);
+                                    return false;
+                                }
                             }
-                        }
 
-                        if ! sparse.is_null() {
-                            if ! ll_write_archive_entry(self.fsreader, self.handle, sparse) {
-                                archive_entry_free(entry);
-                                return false;
+                            if ! sparse.is_null() {
+                                if ! ll_write_archive_entry(self.fsreader, self.handle, sparse) {
+                                    archive_entry_free(entry);
+                                    return false;
+                                }
                             }
                         }
                     },
