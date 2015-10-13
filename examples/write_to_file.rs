@@ -13,6 +13,7 @@ fn main(){
     entry.set_permissions(0o644);
     entry.stub();
     println!("{:?}", arc.write_entry_stream(&mut entry, File::open("foo.txt").unwrap() ));
+    println!("@{:?}", arc.write_file("foo.txt"));
 
 
 }
