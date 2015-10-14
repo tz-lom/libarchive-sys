@@ -363,10 +363,35 @@ impl WriteEntry {
     }
 }
 
+struct WriterToStream {
+    writer: Box<Write>
+}
+
+extern "C" fn arch_write(arch: *mut Struct_archive, client_data: *mut ::libc::c_void, buffer: *const ::libc::c_void, size: ::libc::size_t) -> ::libc::ssize_t {
+    unsafe {
+        // use client_data as pointer to ReadContainer struct
+        let rd: &mut WriterToStream = &mut *(client_data as *mut WriterToStream);
+        if size == 0 {
+            0
+        } else {
+            match rd.writer.write_all(std::slice::from_raw_parts(buffer as *const u8, size as usize)) {
+                Ok(()) => size as ::libc::ssize_t,
+                Err(err) => {
+                    let descr = CString::new(err.description()).unwrap();
+                    archive_set_error(arch, err.raw_os_error().unwrap_or(0), descr.as_ptr());
+                    -1
+                }
+            }
+        }
+    }
+}
+
 pub struct Writer {
     handle: *mut Struct_archive,
     resolver: *mut Struct_archive_entry_linkresolver,
-    fsreader: *mut Struct_archive
+    fsreader: *mut Struct_archive,
+    #[allow(dead_code)]
+    writer: Option<Box<WriterToStream>>
 }
 
 pub enum Format {
@@ -526,10 +551,55 @@ impl Writer {
                 Ok( Writer {
                         handle: hnd,
                         resolver: std::ptr::null_mut(),
-                        fsreader: std::ptr::null_mut()
+                        fsreader: std::ptr::null_mut(),
+                        writer: None
                     } )
             } else {
                 archive_write_free(hnd);
+                Err(Error::Open)
+            }
+        }
+    }
+
+    pub fn open_stream<T: Any+Write>(dest: T, format: Format) -> Result<Self, Error> {
+        unsafe {
+            let hnd = archive_write_new();
+            if hnd.is_null() {
+                return Err(Error::Allocation);
+            }
+
+            archive_write_set_bytes_in_last_block(hnd, 1);
+
+            match set_format(hnd, format) {
+                Err(e) => {
+                    archive_write_free(hnd);
+                    return Err(e);
+                },
+                _ => {}
+            }
+
+            let r = WriterToStream {
+                writer: Box::new(dest)
+                };
+            let mut rfs = Box::new(r);
+            let raw = &mut *rfs as *mut WriterToStream;
+
+            let res = archive_write_open(
+                        hnd,
+                        raw as *mut ::libc::c_void,
+                        None,
+                        Some(arch_write),
+                        None);
+
+            if res==ARCHIVE_OK {
+                Ok( Writer {
+                    handle: hnd,
+                    resolver: std::ptr::null_mut(),
+                    fsreader: std::ptr::null_mut(),
+                    writer: Some(rfs)
+                } )
+            } else {
+                archive_read_free(hnd);
                 Err(Error::Open)
             }
         }
@@ -564,7 +634,6 @@ impl Writer {
                 }
                 Err(_) => Err(IOError::Failed)
             }
-
         }
     }
 

@@ -449,16 +449,11 @@ extern "C" {
     pub fn archive_write_open(arg1: *mut Struct_archive,
                               arg2: *mut ::libc::c_void,
                               arg3:
-                                  *mut ::std::option::Option<extern "C" fn()
-                                                                 ->
-                                                                     ::libc::c_int>,
+                                  ::std::option::Option<archive_open_callback>,
                               arg4:
-                                  *mut ::std::option::Option<extern "C" fn()
-                                                                 -> ssize_t>,
+                                  ::std::option::Option<archive_write_callback>,
                               arg5:
-                                  *mut ::std::option::Option<extern "C" fn()
-                                                                 ->
-                                                                     ::libc::c_int>)
+                                  ::std::option::Option<archive_close_callback>)
      -> ::libc::c_int;
     pub fn archive_write_open_fd(arg1: *mut Struct_archive,
                                  _fd: ::libc::c_int) -> ::libc::c_int;
