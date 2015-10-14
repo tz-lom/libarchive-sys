@@ -8,21 +8,23 @@ pub use ffi::extract_flags::*;
 use ffi::*;
 
 use std::ffi::CString;
-use std::io::{Read, Write, Cursor};
+use std::io::{Read, Write};
 use std::error::Error as StdError;
 use std::any::Any;
 use std::path::Path;
-use std::fs::File;
 
 #[derive(Debug)]
 pub enum Error {
     Allocation,
     Initialization,
-    Open,
-    EntryNotWritten,
-    EntryWrittenPartly,
-    EntryExtractedPartly,
-    NotAFile
+    Open
+}
+
+#[derive(Debug)]
+pub enum IOError {
+    Failed,
+    Fatal,
+    PartlyDone
 }
 
 pub enum EntryType {
@@ -39,6 +41,12 @@ pub enum EntryType {
 
 pub trait ArchiveHandle {
     unsafe fn archive_handle(&self) -> *mut ffi::Struct_archive;
+
+    fn is_error(&self) -> bool {
+        unsafe {
+            archive_errno(self.archive_handle()) == ARCHIVE_OK
+        }
+    }
 
     fn error_string(&self) -> String {
         unsafe {
@@ -154,11 +162,12 @@ impl Entry for ReaderEntry {
 }
 
 impl ReaderEntry {
-    pub fn extract(self, flags: ExtractFlags) -> bool{
+    pub fn extract(self, flags: ExtractFlags) -> Result<(), IOError> {
         unsafe {
             match archive_read_extract(self.archive, self.handle, flags.bits()) {
-                ARCHIVE_OK | ARCHIVE_WARN => true,
-                _ => false
+                ARCHIVE_OK => Ok({}),
+                ARCHIVE_FATAL => Err(IOError::Fatal),
+                _ => Err(IOError::Failed)
             }
         }
     }
@@ -178,6 +187,7 @@ impl ReaderFromStream {
 pub struct Reader {
     handle: *mut ffi::Struct_archive,
     entry: ReaderEntry,
+#[allow(dead_code)]
     reader: Option<Box<ReaderFromStream>>
 }
 
@@ -405,7 +415,7 @@ impl Drop for Writer {
                 let mut entry = std::ptr::null_mut::<Struct_archive_entry>();
                 archive_entry_linkify(self.resolver, &mut entry, &mut sparse);
                 if !sparse.is_null() {
-                    ll_write_archive_entry(self.fsreader, self.handle, sparse);
+                    let _ = ll_write_archive_entry(self.fsreader, self.handle, sparse);
                 }
                 archive_entry_linkresolver_free(self.resolver)
             }
@@ -419,11 +429,15 @@ impl Drop for Writer {
     }
 }
 
-fn ll_write_archive_entry(from: *mut Struct_archive, to: *mut Struct_archive, entry: *mut Struct_archive_entry) -> bool {
+fn ll_write_archive_entry(from: *mut Struct_archive, to: *mut Struct_archive, entry: *mut Struct_archive_entry) -> Result<(), IOError> {
     unsafe {
-        if archive_write_header(to, entry) != ARCHIVE_OK {
-            return false;
+        match archive_write_header(to, entry) as i32 {
+            ARCHIVE_OK => {},
+            ARCHIVE_FATAL => return Err(IOError::Fatal),
+            _ => return Err(IOError::Failed)
         }
+
+        let finish_entry = Finally::new(|| { archive_write_finish_entry(to); });
 
         if archive_entry_size(entry)>0 {
 
@@ -442,22 +456,50 @@ fn ll_write_archive_entry(from: *mut Struct_archive, to: *mut Struct_archive, en
                         std::cmp::min(nullbuff.len() as u64, offset as u64)
                         );
                     if wsz<0 {
-                        return false;
+                        return Err(IOError::PartlyDone);
                     } else {
                         progress += wsz;
                     }
                 }
 
-                let wsz = archive_write_data(to, buffer, sz);
-                if wsz != sz as i64 {
-                    return false;
-                } else {
-                    progress += wsz;
+
+
+                match archive_write_data(to, buffer, sz) {
+                    wsz if wsz==sz as i64 => {
+                        progress+=wsz;
+                    },
+                    wsz if wsz>0 => {
+                        return Err(IOError::PartlyDone);
+                    },
+                    e if e == ARCHIVE_FATAL as i64 => return Err(IOError::Fatal),
+                    _ => return Err(IOError::Failed)
                 }
             }
         }
-        archive_write_finish_entry(to);
-        true
+        Ok({})
+    }
+}
+
+struct Finally<F> where F : FnMut(){
+    call: F,
+    cancel: bool
+}
+
+impl<F> Finally<F> where F : FnMut(){
+    pub fn new(f: F) -> Finally<F> {
+        Finally { call: f, cancel: false }
+    }
+
+    pub fn cancel(&mut self) {
+        self.cancel = false;
+    }
+}
+
+impl<F> Drop for Finally<F>  where F : FnMut(){
+    fn drop(&mut self) {
+        if !self.cancel {
+            (self.call)();
+        }
     }
 }
 
@@ -493,37 +535,40 @@ impl Writer {
         }
     }
 
-    pub fn add_entry_stream<T: Read>(&mut self, entry: &mut Entry, mut stream: T) -> bool {
+    pub fn add_full_stream<T: Read>(&mut self, entry: &mut Entry, mut stream: T) -> Result<(), IOError> {
         unsafe {
             let mut buffer = Vec::new();
             match stream.read_to_end(&mut buffer) {
                 Ok(size) => {
                     archive_entry_set_size(entry.entry_handle(), size as i64);
-                    if archive_write_header(self.handle, entry.entry_handle()) != ARCHIVE_OK {
-                        return false;
+
+                    let finish_entry = Finally::new(|| { archive_write_finish_entry(self.handle); });
+
+                    match archive_write_header(self.handle, entry.entry_handle()) {
+                        ARCHIVE_OK  => {},
+                        ARCHIVE_FATAL => return Err(IOError::Fatal),
+                        _ =>return Err(IOError::Failed)
                     }
 
-                    let mut written = 0;
-                    while  written < size {
-                        let wsz = archive_write_data(self.handle, buffer.as_mut_ptr() as *const ::libc::c_void, (size) as u64);
-                        if wsz != size as i64{
-                            return false;
-                        }
-                        written += wsz as usize;
+                    match archive_write_data(self.handle, buffer.as_mut_ptr() as *const ::libc::c_void, (size) as u64) {
+                        wsz if wsz==size as i64 => {},
+                        wsz if wsz>0  => {
+                            return Err(IOError::PartlyDone);
+                        },
+                        e if e == ARCHIVE_FATAL as i64 => return Err(IOError::Fatal),
+                        _ => return Err(IOError::Failed),
                     }
 
-                    archive_write_finish_entry(self.handle);
-
-                    true
+                    Ok({})
 
                 }
-                Err(_) => false
+                Err(_) => Err(IOError::Failed)
             }
 
         }
     }
 
-    pub fn add_archive_entry<E: ArchiveHandle+Entry>(&mut self, entry: &mut E) -> bool {
+    pub fn add_archive_entry<E: ArchiveHandle+Entry>(&mut self, entry: &mut E) -> Result<(), IOError> {
         unsafe {
             ll_write_archive_entry(entry.archive_handle(), self.handle, entry.entry_handle())
         }
@@ -540,18 +585,22 @@ impl Writer {
         }
     }
 
-    pub fn add_path<P: AsRef<Path>>(&mut self, path: P) -> bool {
-        self.add_path_with_callback(path, |e| true)
+    pub fn add_path<P: AsRef<Path>>(&mut self, path: P) -> Result<(), IOError> {
+        self.add_path_with_callback(path, |_| true)
     }
 
-    pub fn add_path_with_callback<P: AsRef<Path>, F>(&mut self, path: P, callback:F) -> bool where F: Fn(&mut ReaderEntry) -> bool {
+    pub fn add_path_with_callback<P: AsRef<Path>, F>(&mut self, path: P, mut callback: F) -> Result<(), IOError> where F: FnMut(&mut ReaderEntry) -> bool {
         self.init_disk_reader();
         unsafe {
             if archive_read_disk_open(self.fsreader, CString::new(path.as_ref().to_string_lossy().as_bytes()).unwrap().as_ptr()) != ARCHIVE_OK {
-                return false;
+                return Err(IOError::Failed);
             }
 
+            let close_read_disk = Finally::new(|| { archive_read_close(self.fsreader); } );
+
             let mut entry = archive_entry_new();
+
+            let free_entry = Finally::new(move || { archive_entry_free(entry); } );
 
             loop {
                 let r = archive_read_next_header2(self.fsreader, entry);
@@ -570,28 +619,19 @@ impl Writer {
 
                             if ! entry.is_null() {
 
-                                if ! ll_write_archive_entry(self.fsreader, self.handle, entry) {
-                                    archive_entry_free(entry);
-                                    return false;
-                                }
+                                try!(ll_write_archive_entry(self.fsreader, self.handle, entry));
                             }
 
                             if ! sparse.is_null() {
-                                if ! ll_write_archive_entry(self.fsreader, self.handle, sparse) {
-                                    archive_entry_free(entry);
-                                    return false;
-                                }
+                                try!(ll_write_archive_entry(self.fsreader, self.handle, sparse));
                             }
                         }
                     },
-                    _ => {
-                        archive_read_close(self.fsreader);
-                        return false;
-                    }
+                    ARCHIVE_FATAL => return Err(IOError::Fatal),
+                    _ => return Err(IOError::PartlyDone)
                 }
             }
-            archive_read_close(self.fsreader);
-            true
+            Ok({})
         }
     }
 }

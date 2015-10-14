@@ -11,7 +11,7 @@ fn main(){
     let mut entry = WriteEntry::new();
     entry.set_path("bar.txt");
     entry.set_permissions(0o644); // not really necessary
-    println!("{:?}", arc.add_entry_stream(&mut entry, File::open("foo.txt").unwrap() ));
+    println!("{:?}", arc.add_full_stream(&mut entry, File::open("foo.txt").unwrap() ));
     println!("@{:?}", arc.add_path("foo.txt"));
     println!("#{:?}", arc.add_path_with_callback(".",
         |e| {
